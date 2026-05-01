@@ -12,30 +12,30 @@ A Claude Code / Cowork plugin for videographers who need to organize large libra
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
+| Command             | Description                                     |
+| ------------------- | ----------------------------------------------- |
 | `/clasificar-video` | Classify a video library from a folder of clips |
-| `/generar-fcpxml` | Generate FCPXML from a classification CSV |
-| `/convertir-audio` | Convert audio files to AIFF |
+| `/generar-fcpxml`   | Generate FCPXML from a classification CSV       |
+| `/convertir-audio`  | Convert audio files to AIFF                     |
 
 ## Energy Scale (1–5)
 
-| Level | Name | Description |
-|-------|------|-------------|
-| 1 | Atmospheric | Static shots — objects, architecture, details |
-| 2 | Intimate | Quiet moments — hands, whispers, subtle emotion |
-| 3 | Social | People interacting — conversations, walking, toasts |
-| 4 | Celebration | High energy — dancing, laughing, exits |
-| 5 | Ecstasy | Peak action — dancefloor, confetti, sparklers |
+| Level | Name        | Description                                         |
+| ----- | ----------- | --------------------------------------------------- |
+| 1     | Atmospheric | Static shots — objects, architecture, details       |
+| 2     | Intimate    | Quiet moments — hands, whispers, subtle emotion     |
+| 3     | Social      | People interacting — conversations, walking, toasts |
+| 4     | Celebration | High energy — dancing, laughing, exits              |
+| 5     | Ecstasy     | Peak action — dancefloor, confetti, sparklers       |
 
 ## Narrative Value Archetypes
 
-| Value | Use in edit |
-|-------|-------------|
-| Foundation | Speeches, vows, interviews — story backbone |
-| Candid | Spontaneous reactions — highlight gold |
-| Epic | Visually stunning — drones, wide angles, movement |
-| Filler | B-roll without narrative weight |
+| Value      | Use in edit                                       |
+| ---------- | ------------------------------------------------- |
+| Foundation | Speeches, vows, interviews — story backbone       |
+| Candid     | Spontaneous reactions — highlight gold            |
+| Epic       | Visually stunning — drones, wide angles, movement |
+| Filler     | B-roll without narrative weight                   |
 
 ## Requirements
 
@@ -57,7 +57,7 @@ Drag the `.plugin` file into Claude, or install from the community directory:
 
 ## Author
 
-**Shape Creative Studio** — [shapecreative.co](https://shapecreative.co)
+**Félix Rivas** — [shapecreativestudio.com](https://shapecreativestudio.com)
 
 ## License
 
