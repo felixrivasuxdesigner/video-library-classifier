@@ -1,0 +1,9 @@
+{
+  "name": "video-library-classifier",
+  "version": "0.6.1",
+  "description": "Classifies video libraries combining ffprobe metadata + visual classification with Claude (keyframe reading via ffmpeg). Generates enriched CSV with category, energy (1-5 descriptive), narrative value, and tags per clip; converts audio to AIFF; and produces FCPXML 1.13 with Keyword Collections across 6 dimensions: moment, camera, energy, narrative, tags, and priority.",
+  "author": {
+    "name": "Shape Creative Studio"
+  },
+  "keywords": ["video", "ffprobe", "ffmpeg", "metadata", "classification", "visual", "claude", "multimodal", "wedding", "production", "csv", "audio", "aiff", "flac", "m4a", "conversion", "fcp", "fcpxml", "final cut pro", "keyword collections", "narrative value", "energy scale"]
+}
