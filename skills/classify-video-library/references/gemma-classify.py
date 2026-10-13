@@ -226,6 +226,24 @@ TAXONOMY_BY_TYPE: dict[str, dict[str, Any]] = {
             "table": "Food and drinks on a restaurant table",
         },
     },
+    "social": {
+        "moments": {
+            "Arrival": "Guests and senior citizens arriving, welcoming people at the door, greeting neighbors and friends",
+            "Speech": "Person speaking into a microphone addressing the community, official welcome words, announcements, presentation",
+            "Sharing": "People seated around long tables eating, drinking tea or coffee, sharing food and chatting together",
+            "Performance": "Live music, singing, artistic show, dancing, entertainment or raffle prizes in front of the audience",
+            "Details": "Close-up of decorations, cakes, food platters, gifts, banners, tables",
+            "Drone": "Aerial view from above of neighborhood or venue",
+        },
+        "tags": {
+            "speech": "Person speaking with a microphone, giving a speech or announcement",
+            "table": "People seated at tables with food, teacups, cake, sharing meal",
+            "dance": "People dancing, clapping to music, lively celebration",
+            "toast": "Raising glasses or cups for a toast, cheering",
+            "cake": "Cake, desserts, pastries on table",
+            "venue": "Community center hall, decorated room with balloons or banners",
+        },
+    },
 }
 # Alias wedding -> boda
 TAXONOMY_BY_TYPE["wedding"] = TAXONOMY_BY_TYPE["boda"]
@@ -323,7 +341,19 @@ class GemmaMultimodalEmbedder:
         node_modules = Path(__file__).resolve().parent / "node_modules"
 
         if backend == "auto":
-            if self.worker_mjs.exists() and node_modules.exists():
+            has_cuda_torch = False
+            if device in (None, "cuda"):
+                try:
+                    import torch
+                    import sentence_transformers  # noqa: F401
+                    has_cuda_torch = torch.cuda.is_available()
+                except Exception:
+                    has_cuda_torch = False
+
+            if has_cuda_torch or device == "cuda":
+                self.backend = "torch"
+                device = "cuda"
+            elif self.worker_mjs.exists() and node_modules.exists():
                 self.backend = "onnx-node"
             else:
                 self.backend = "torch"
@@ -793,7 +823,7 @@ def main() -> None:
     p.add_argument(
         "--tipo",
         default="boda",
-        choices=["boda", "wedding", "quinceanero", "corporativo", "concierto", "documental", "viaje"],
+        choices=["boda", "wedding", "quinceanero", "corporativo", "social", "concierto", "documental", "viaje"],
     )
     p.add_argument("--output", type=Path, required=True, help="Ruta a _visual_classifications.json")
     p.add_argument("--cache", type=Path, default=None, help="Ruta a .clasificacion_cache.json")

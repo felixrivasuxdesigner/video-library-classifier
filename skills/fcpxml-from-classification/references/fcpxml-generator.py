@@ -169,6 +169,9 @@ def probe_all(
         camara = row["camara"].strip()
         folder = folder_map.get(camara, camara.lower().replace(" ", ""))
         path = videos_root / folder / archivo
+        if not path.exists() and (videos_root / archivo).exists():
+            folder = ""
+            path = videos_root / archivo
         meta = ffprobe(path)
         meta["archivo"] = archivo
         meta["folder"] = folder
@@ -355,8 +358,8 @@ def build_fcpxml(
         fid = formats[(m["width"], m["height"], m["frame_duration"])]
         asset_uid = uuid.uuid5(uuid.NAMESPACE_URL, archivo).hex.upper()
         camara = row["camara"].strip()
-        folder = folder_map.get(camara, camara.lower().replace(" ", ""))
-        src = f"{videos_root_mac_uri}/{folder}/{archivo}"
+        folder = m.get("folder") if "folder" in m else folder_map.get(camara, camara.lower().replace(" ", ""))
+        src = f"{videos_root_mac_uri}/{folder}/{archivo}" if folder else f"{videos_root_mac_uri}/{archivo}"
         has_audio = "1" if m["has_audio"] else "0"
         audio_attrs = ""
         if m["has_audio"]:

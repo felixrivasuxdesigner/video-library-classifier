@@ -68,10 +68,29 @@ async function main() {
   }
 
   const processor = await AutoProcessor.from_pretrained(MODEL_ID);
-  const model = await AutoModel.from_pretrained(MODEL_ID, {
-    config,
-    dtype: "q4",
-  });
+  const preferredDevice = process.env.GEMMA_ONNX_DEVICE || (os.platform() === "win32" ? "dml" : undefined);
+  let model;
+  if (preferredDevice) {
+    try {
+      model = await AutoModel.from_pretrained(MODEL_ID, {
+        config,
+        dtype: "q4",
+        device: preferredDevice,
+      });
+      console.error(`[gemma-onnx] Aceleración GPU activa: device=${preferredDevice}`);
+    } catch (err) {
+      console.error(`[gemma-onnx] Aviso: device=${preferredDevice} no disponible (${err.message}), usando CPU nativo.`);
+      model = await AutoModel.from_pretrained(MODEL_ID, {
+        config,
+        dtype: "q4",
+      });
+    }
+  } else {
+    model = await AutoModel.from_pretrained(MODEL_ID, {
+      config,
+      dtype: "q4",
+    });
+  }
 
   if (isWarmup) {
     const warmupInputs = await processor(["task: search result | query: wedding ceremony"]);
