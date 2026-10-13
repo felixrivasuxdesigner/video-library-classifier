@@ -1,0 +1,14 @@
+{
+  "name": "video-library-classifier-gemma-onnx",
+  "version": "0.7.0",
+  "private": true,
+  "type": "module",
+  "description": "ONNX Runtime Q4 multimodal engine for EmbeddingGemma 2 (macOS Intel x86_64 & Apple Silicon)",
+  "scripts": {
+    "postinstall": "node ./patch-darwin-x64.mjs",
+    "warmup": "node ./gemma-onnx-worker.mjs --warmup"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.0.0-next.6"
+  }
+}

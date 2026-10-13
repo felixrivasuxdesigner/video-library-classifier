@@ -1,19 +1,8 @@
-# OS
-.DS_Store
-Thumbs.db
-
-# Python
+node_modules/
+**/node_modules/
+package-lock.json
+**/package-lock.json
 __pycache__/
+**/__pycache__/
 *.pyc
-*.pyo
-
-# Temp files from classification runs
-_frames/
-_metadata.json
-_visual_classifications.json
-_visual_manifest.json
-.clasificacion_cache.json
-
-# Plugin build artifacts
-*.plugin
-*.zip
+.DS_Store

@@ -253,37 +253,36 @@ def build_taxonomy_anchors(
 ) -> dict[str, Any]:
     """
     Pre-computes MRL-truncated L2-normalized anchor vectors for Moments,
-    Energy (1-5), Narrative Value, and Tags for the selected production type.
+    Energy (1-5), Narrative Value, and Tags in a single batched pass.
     """
     tax = TAXONOMY_BY_TYPE.get(tipo.lower(), TAXONOMY_BY_TYPE["boda"])
 
     moment_names = list(tax["moments"].keys())
     moment_prompts = [tax["moments"][k] for k in moment_names]
-    moment_vecs = truncate_and_normalize(
-        embedder.encode_text(moment_prompts, prompt_name="Classification"),
-        mrl_dim=mrl_dim,
-    )
 
     energy_levels = [1, 2, 3, 4, 5]
     energy_prompts = [ENERGY_ANCHOR_TEXTS[k] for k in energy_levels]
-    energy_vecs = truncate_and_normalize(
-        embedder.encode_text(energy_prompts, prompt_name="Classification"),
-        mrl_dim=mrl_dim,
-    )
 
     narrative_names = list(NARRATIVE_ANCHOR_TEXTS.keys())
     narrative_prompts = [NARRATIVE_ANCHOR_TEXTS[k] for k in narrative_names]
-    narrative_vecs = truncate_and_normalize(
-        embedder.encode_text(narrative_prompts, prompt_name="Classification"),
-        mrl_dim=mrl_dim,
-    )
 
     tag_names = list(tax["tags"].keys())
     tag_prompts = [tax["tags"][k] for k in tag_names]
-    tag_vecs = truncate_and_normalize(
-        embedder.encode_text(tag_prompts, prompt_name="Classification"),
+
+    all_prompts = moment_prompts + energy_prompts + narrative_prompts + tag_prompts
+    all_vecs = truncate_and_normalize(
+        embedder.encode_text(all_prompts, prompt_name="Classification"),
         mrl_dim=mrl_dim,
-    ) if tag_names else []
+    )
+
+    i0 = len(moment_prompts)
+    i1 = i0 + len(energy_prompts)
+    i2 = i1 + len(narrative_prompts)
+
+    moment_vecs = all_vecs[:i0]
+    energy_vecs = all_vecs[i0:i1]
+    narrative_vecs = all_vecs[i1:i2]
+    tag_vecs = all_vecs[i2:]
 
     return {
         "moments": dict(zip(moment_names, moment_vecs)),
@@ -299,16 +298,46 @@ def build_taxonomy_anchors(
 
 class GemmaMultimodalEmbedder:
     """
-    Loads `google/embeddinggemma-2` via `sentence-transformers` with automatic
-    device selection (`mps` on Metal if supported, otherwise multi-threaded `cpu`
-    optimized for Intel Core i9).
+    Runs `EmbeddingGemma 2` locally.
+    Primary backend on macOS (especially Intel Core i9 x86_64):
+      `gemma-onnx-worker.mjs` using `onnx-community/embeddinggemma-2-ONNX` (Q4)
+      via native C++ `onnxruntime-node` (AVX2 / CoreML).
+    Fallback backend:
+      `sentence-transformers` (`google/embeddinggemma-2`).
     """
+    TASK_PREFIXES = {
+        "Classification": "task: classification | query: ",
+        "SearchQuery": "task: search result | query: ",
+        "Document": "title: none | text: ",
+    }
+
     def __init__(
         self,
         model_id: str = "google/embeddinggemma-2",
         device: str | None = None,
         quantize_int8: bool = False,
+        backend: str = "auto",
     ):
+        self.model_id = model_id
+        self.worker_mjs = Path(__file__).resolve().parent / "gemma-onnx-worker.mjs"
+        node_modules = Path(__file__).resolve().parent / "node_modules"
+
+        if backend == "auto":
+            if self.worker_mjs.exists() and node_modules.exists():
+                self.backend = "onnx-node"
+            else:
+                self.backend = "torch"
+        else:
+            self.backend = backend
+
+        if self.backend == "onnx-node":
+            print(
+                f"[gemma] Motor activo: ONNX Runtime Q4 nativo ({self.worker_mjs.name})",
+                file=sys.stderr,
+            )
+            self.model = None
+            return
+
         import torch
         from sentence_transformers import SentenceTransformer
 
@@ -322,7 +351,6 @@ class GemmaMultimodalEmbedder:
                 device = "cpu"
 
         self.device = device
-        self.model_id = model_id
         print(
             f"[gemma] Cargando {model_id} en dispositivo '{device}' "
             f"(threads={torch.get_num_threads()})...",
@@ -339,9 +367,42 @@ class GemmaMultimodalEmbedder:
             except Exception as exc:
                 print(f"[warn] No se pudo aplicar INT8 dinámico: {exc}", file=sys.stderr)
 
+    def _run_onnx_worker(
+        self,
+        texts: list[str] | None = None,
+        windows: list[dict[str, Any]] | None = None,
+        text_only: bool = False,
+    ) -> dict[str, Any]:
+        with tempfile.TemporaryDirectory(prefix="gemma_ipc_") as tmpdir:
+            req_path = Path(tmpdir) / "req.json"
+            res_path = Path(tmpdir) / "res.json"
+            req_path.write_text(
+                json.dumps({"texts": texts or [], "windows": windows or []}),
+                encoding="utf-8",
+            )
+            cmd = [
+                "node",
+                str(self.worker_mjs),
+                "--input", str(req_path),
+                "--output", str(res_path),
+            ]
+            if text_only and not windows:
+                cmd.append("--text-only")
+            subprocess.run(cmd, check=True)
+            return json.loads(res_path.read_text(encoding="utf-8"))
+
     def encode_text(
         self, texts: list[str], prompt_name: str = "Classification"
     ) -> list[list[float]]:
+        prefix = self.TASK_PREFIXES.get(prompt_name, "")
+        prefixed = [
+            t if t.startswith("task: ") or t.startswith("title: ") else f"{prefix}{t}"
+            for t in texts
+        ]
+        if self.backend == "onnx-node":
+            res = self._run_onnx_worker(texts=prefixed, text_only=True)
+            return res.get("text_embeddings", [])
+
         try:
             vecs = self.model.encode(
                 texts,
@@ -351,11 +412,31 @@ class GemmaMultimodalEmbedder:
             )
         except TypeError:
             vecs = self.model.encode(
-                texts,
+                prefixed,
                 convert_to_numpy=True,
                 show_progress_bar=False,
             )
         return vecs.tolist()
+
+    def encode_windows_batch(
+        self, windows_req: list[dict[str, Any]]
+    ) -> dict[str, list[float]]:
+        """
+        Encodes a batch of `{id, frame_path, audio_path}` items in a single pass.
+        """
+        if not windows_req:
+            return {}
+        if self.backend == "onnx-node":
+            res = self._run_onnx_worker(windows=windows_req, text_only=False)
+            return res.get("window_embeddings", {})
+
+        out: dict[str, list[float]] = {}
+        for w in windows_req:
+            out[w["id"]] = self.encode_window(
+                Path(w["frame_path"]) if w.get("frame_path") else None,
+                Path(w["audio_path"]) if w.get("audio_path") else None,
+            )
+        return out
 
     def encode_window(
         self,
@@ -363,6 +444,14 @@ class GemmaMultimodalEmbedder:
         audio_path: Path | None,
         hint: str = "",
     ) -> list[float]:
+        if self.backend == "onnx-node":
+            res = self.encode_windows_batch([{
+                "id": "single",
+                "frame_path": str(frame_path) if frame_path else None,
+                "audio_path": str(audio_path) if audio_path else None,
+            }])
+            return res.get("single", [0.0] * 768)
+
         inputs: list[Any] = []
         if frame_path and frame_path.exists():
             inputs.append({"image": str(frame_path)})
@@ -380,7 +469,6 @@ class GemmaMultimodalEmbedder:
                 convert_to_numpy=True,
                 show_progress_bar=False,
             )
-            # Fuse visual (0.65 weight) + audio (0.35 weight) when both exist
             v_list = vecs.tolist()
             if len(v_list) == 2:
                 dim = len(v_list[0])
@@ -388,7 +476,6 @@ class GemmaMultimodalEmbedder:
                 return fused
             return v_list[0]
         except Exception as exc:
-            # Fallback if audio modality fails on a specific snippet: encode image only
             if len(inputs) > 1 and frame_path and frame_path.exists():
                 vecs = self.model.encode(
                     [{"image": str(frame_path)}],
@@ -799,7 +886,21 @@ def main() -> None:
         for fut in as_completed(futs):
             prepared.append(fut.result())
 
-    # Step 2: Multimodal Embedding & Classification
+    # Step 2: Multimodal Embedding & Classification (Single Batch Pass)
+    batch_reqs: list[dict[str, Any]] = []
+    for clip, w_list in prepared:
+        sig = clip["signature"]
+        for w_idx, w in enumerate(w_list):
+            w_id = f"{sig}_{w_idx}"
+            w["id"] = w_id
+            batch_reqs.append({
+                "id": w_id,
+                "frame_path": w.get("frame_path"),
+                "audio_path": w.get("audio_path"),
+            })
+
+    batch_embeddings = embedder.encode_windows_batch(batch_reqs)
+
     classifications: list[dict[str, Any]] = []
     triage_manifest: list[dict[str, Any]] = []
 
@@ -807,10 +908,7 @@ def main() -> None:
         sig = clip["signature"]
         encoded_windows: list[dict[str, Any]] = []
         for w in w_list:
-            raw_vec = embedder.encode_window(
-                Path(w["frame_path"]) if w.get("frame_path") else None,
-                Path(w["audio_path"]) if w.get("audio_path") else None,
-            )
+            raw_vec = batch_embeddings.get(w["id"], [0.0] * 768)
             vec256 = truncate_and_normalize([raw_vec], mrl_dim=args.mrl_dim)[0]
             encoded_windows.append({
                 "signature": sig,
