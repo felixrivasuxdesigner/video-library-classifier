@@ -37,8 +37,8 @@ from pathlib import Path
 CSV_COLUMNS = [
     "archivo", "camara", "duracion_seg", "hora_creacion",
     "momento", "momento_hora", "categoria_visual", "energia",
-    "valor_narrativo", "confianza", "tags", "resolucion", "codec",
-    "revisar_prioritario",
+    "valor_narrativo", "confianza", "tags", "sub_ranges",
+    "resolucion", "codec", "revisar_prioritario",
 ]
 
 CONFIDENCE_THRESHOLD = 0.6
@@ -67,12 +67,14 @@ def merge_one(meta: dict, visual: dict | None, cache_entry: dict | None) -> dict
         valor_narrativo = source.get("valor_narrativo", "")
         confianza = float(source.get("confianza", 0.0))
         tags = source.get("tags", []) or []
+        sub_ranges = source.get("sub_ranges", []) or []
     else:
         categoria_visual = ""
         energia = ""
         valor_narrativo = ""
         confianza = 0.0
         tags = []
+        sub_ranges = []
 
     momento_hora = meta.get("momento_hora", "")
     if "error" in meta:
@@ -96,6 +98,7 @@ def merge_one(meta: dict, visual: dict | None, cache_entry: dict | None) -> dict
         "valor_narrativo": valor_narrativo,
         "confianza": f"{confianza:.2f}" if source else "",
         "tags": ", ".join(tags),
+        "sub_ranges": json.dumps(sub_ranges, ensure_ascii=False) if sub_ranges else "[]",
         "resolucion": meta.get("resolucion", ""),
         "codec": meta.get("codec", ""),
         "revisar_prioritario": meta.get("revisar_prioritario", "NO"),
@@ -120,6 +123,7 @@ def update_cache(cache: dict, visual_classifications: list) -> dict:
                 "valor_narrativo": v.get("valor_narrativo", ""),
                 "confianza": v.get("confianza", 0.0),
                 "tags": v.get("tags", []),
+                "sub_ranges": v.get("sub_ranges", []),
                 "razonamiento": v.get("razonamiento", ""),
             }
     return cache
@@ -184,13 +188,20 @@ def report(rows: list[dict], alert_threshold: float = 0.4) -> None:
 
     energia_dist = {}
     for r in rows:
-        if r["energia"]:
-            energia_dist[r["energia"]] = energia_dist.get(r["energia"], 0) + 1
+        if r["energia"] != "":
+            k = str(r["energia"])
+            energia_dist[k] = energia_dist.get(k, 0) + 1
+
+    subranges_clips = sum(
+        1 for r in rows
+        if r.get("sub_ranges") and r["sub_ranges"] not in ("", "[]")
+    )
 
     print()
     print(f"✓ CSV generado")
     print(f"  Total clips: {total}")
     print(f"  Con clasificación visual: {visual}")
+    print(f"  Con sub-rangos (intra-clip): {subranges_clips}")
     print(f"  Sin metadata de hora: {sin_hora}")
     print(f"  Sin clasificar: {sin_clasif}")
     print(f"  Clips prioritarios: {prio}")
@@ -201,9 +212,17 @@ def report(rows: list[dict], alert_threshold: float = 0.4) -> None:
     if energia_dist:
         print()
         print("  Distribución por energía:")
-        for k in ("alta", "media", "baja"):
+        energia_labels = {
+            "1": "1 · Atmospheric",
+            "2": "2 · Intimate",
+            "3": "3 · Social",
+            "4": "4 · Celebration",
+            "5": "5 · Ecstasy",
+        }
+        for k in ("1", "2", "3", "4", "5", "alta", "media", "baja"):
             if k in energia_dist:
-                print(f"    {k}: {energia_dist[k]}")
+                label = energia_labels.get(k, k)
+                print(f"    {label}: {energia_dist[k]}")
 
     # ===== Alertas v0.4.1 =====
     print()

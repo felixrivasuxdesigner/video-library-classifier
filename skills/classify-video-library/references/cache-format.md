@@ -1,57 +1,61 @@
-# Cache format — `.clasificacion_cache.json`
+# Cache Formats — `.clasificacion_cache.json` & `.embeddings_cache.json` (v0.7.0)
 
-Archivo JSON que vive al lado del CSV de salida (mismo directorio raíz de la biblioteca de video). Contiene clasificaciones visuales previas para evitar re-procesar clips ya conocidos.
+Ambos archivos viven al lado del CSV de salida (mismo directorio raíz de la biblioteca de video). Evitan re-procesar clips ya conocidos y habilitan búsquedas instantáneas con **Video Moment Finder** (`moment-finder.py`).
 
-## Esquema
+---
+
+## 1. `.clasificacion_cache.json`
+
+Contiene las clasificaciones multimodales finales por clip (incluyendo `sub_ranges` detectados en clips largos).
 
 ```json
 {
   "<signature>": {
-    "categoria": "Cóctel",
-    "energia": "media",
-    "confianza": 0.85,
-    "tags": ["interior", "salon", "brindis"],
-    "razonamiento": "Personas en mesas alzando copas. Iluminación cálida."
-  },
-  "<signature>": { ... }
+    "categoria": "Reception",
+    "energia": 4,
+    "valor_narrativo": "Foundation",
+    "confianza": 0.91,
+    "tags": ["toast", "speech", "bride"],
+    "sub_ranges": [
+      {"start_sec": 12.0, "duration_sec": 18.0, "keyword": "# toast"}
+    ],
+    "razonamiento": "EmbeddingGemma 2 (con análisis de audio+visión): Reception · E4 · Foundation"
+  }
 }
 ```
 
-## Cómo se calcula `signature`
+---
+
+## 2. `.embeddings_cache.json` (Nuevo en v0.7.0)
+
+Almacena los vectores multimodales truncados con **Matryoshka Representation Learning (MRL 256d)** y normalizados L2 por ventana temporal de cada clip.
+
+```json
+{
+  "model": "google/embeddinggemma-2",
+  "mrl_dim": 256,
+  "count": 420,
+  "windows": [
+    {
+      "signature": "a1b2c3d4...",
+      "archivo": "C002.MP4",
+      "camara": "Camera 2",
+      "start_sec": 15.0,
+      "duration_sec": 10.0,
+      "embedding": [0.0412, -0.0891, ...]
+    }
+  ]
+}
+```
+
+### Cómo se calcula `signature`
 
 ```python
 hashlib.sha1(f"{path.resolve()}|{size}|{int(mtime)}".encode()).hexdigest()
 ```
 
-Cambia si:
+### Ciclo de vida
 
-- El clip se mueve o renombra (cambia el path)
-- El clip se re-importa o reescribe (cambia size/mtime)
-
-No cambia si:
-
-- Solo se modifica el nombre de la carpeta padre (siempre que el path absoluto resuelto siga igual — verificar caso por caso)
-- El clip se lee sin tocarlo
-
-> **Trade-off conocido:** mover toda la biblioteca de carpeta invalida el cache completo. Si esto pasa con frecuencia, considerar cambiar a un signature basado en hash del primer/último MB del archivo (más caro pero estable bajo movimiento). Hoy no lo hacemos por simplicidad.
-
-## Ciclo de vida
-
-1. **Primera corrida:** cache no existe → todos los clips se procesan visualmente → cache se llena.
-2. **Re-corrida sobre la misma carpeta:** todos los signatures ya están → 0 frames extraídos, 0 imágenes leídas, 0 latencia visual. CSV se regenera desde cache + metadata fresca.
-3. **Carpeta con clips nuevos agregados:** solo los nuevos se procesan visualmente. Los viejos vienen del cache. Cache crece.
-4. **Forzar reproceso:** `--no-cache` en el comando elimina el cache antes de empezar.
-
-## Borrado manual
-
-El usuario puede borrar el cache cuando quiera con:
-
-```
-rm /ruta/biblioteca/.clasificacion_cache.json
-```
-
-La próxima corrida re-procesará todo desde cero.
-
-## Tamaño esperado
-
-~300-500 bytes por clip cacheado. Para 1000 clips: ~400 KB. No requiere compresión.
+1. **Primera corrida:** ambos caches se crean desde cero.
+2. **Re-corrida o clips nuevos:** `gemma-classify.py` salta cualquier `signature` que ya esté en `.clasificacion_cache.json` y conserva sus vectores en `.embeddings_cache.json`.
+3. **Consultas `/buscar-momento`:** `moment-finder.py` lee `.embeddings_cache.json` en `<100ms` sin tocar los archivos de video ni invocar `ffmpeg`.

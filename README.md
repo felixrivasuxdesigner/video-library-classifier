@@ -1,22 +1,22 @@
-# Video Library Classifier
+# Video Library Classifier (v0.7.0)
 
-A Claude Code / Cowork plugin for videographers who need to organize large libraries of footage before editing in Final Cut Pro.
+A Claude Code / Cowork and Gemini / Antigravity plugin for videographers who need to organize large libraries of footage before editing in Final Cut Pro.
 
-## What it does
+## What's New in v0.7.0 — Google EmbeddingGemma 2 & Video Moment Finder
 
-1. **Classifies video clips** — Combines ffprobe metadata (resolution, codec, duration, creation time) with visual classification via Claude (keyframe analysis) to categorize each clip by moment, energy, narrative value, and custom tags.
-
-2. **Generates FCPXML** — Produces a valid FCPXML 1.13 file ready to import into Final Cut Pro 11/12, with Keyword Collections organized across 6 dimensions: moment, camera, energy (1–5 descriptive scale), narrative value, tags, and priority.
-
-3. **Converts audio** — Batch converts FLAC, M4A, MP3, WAV to AIFF for professional editing workflows.
+- **Local Multimodal Classification (`gemma-classify.py`)** — Powered by `google/embeddinggemma-2` (Vision + Audio + Text in a unified vector space). Classifies clips locally with near-zero LLM token cost while listening to the actual audio track (accurately distinguishing spoken vows/speeches `◆ Foundation` from ambient B-roll `◆ Filler`).
+- **Intel Core i9 & Apple Silicon Optimized** — Offloads 4K video decoding to parallel `ffmpeg` (`384x384` snapshots + `16kHz` mono WAV snippets), skips the audio encoder on silent/Drone clips (~40% faster), and stores compact **Matryoshka 256d** vectors in `.embeddings_cache.json`.
+- **Video Moment Finder (`/buscar-momento`)** — Search for specific moments across your entire video library using natural language (e.g., `"novio llorando en el altar"`, `"brindis con copas arriba"`) in `<100ms` and inject exact sub-clip ranges (`start` + `duration`) straight into Final Cut Pro as `🔍 <query>` Keyword Collections.
+- **Intra-Clip Sub-Ranges in FCPXML 1.13** — Clips longer than 30 seconds automatically receive frame-accurate sub-clip `<keyword start="..." duration="..."/>` ranges when the action or audio shifts.
 
 ## Commands
 
-| Command             | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `/clasificar-video` | Classify a video library from a folder of clips |
-| `/generar-fcpxml`   | Generate FCPXML from a classification CSV       |
-| `/convertir-audio`  | Convert audio files to AIFF                     |
+| Command             | Description                                                                 |
+| ------------------- | --------------------------------------------------------------------------- |
+| `/clasificar-video` | Classify a video library using EmbeddingGemma 2 (with optional LLM triage)  |
+| `/buscar-momento`   | Search for exact moments in natural language & inject sub-ranges into FCP   |
+| `/generar-fcpxml`   | Generate FCPXML 1.13 from a classification CSV                              |
+| `/convertir-audio`  | Batch convert FLAC, M4A, MP3, WAV audio files to lossless AIFF              |
 
 ## Energy Scale (1–5)
 
@@ -40,20 +40,12 @@ A Claude Code / Cowork plugin for videographers who need to organize large libra
 ## Requirements
 
 - **ffmpeg/ffprobe** installed and in PATH
+- **uv** (recommended) or Python 3.10+ for running `gemma-classify.py` and `moment-finder.py` (dependencies are declared inline via PEP 723)
 - A folder of video files (MP4, MOV, MXF, etc.)
-- Claude with multimodal capabilities (for visual classification)
 
 ## Production types supported
 
-Wedding, Quinceañera, Corporate Event, Concert, Documentary, Travel — with moment brackets configurable per type.
-
-## Installation
-
-Drag the `.plugin` file into Claude, or install from the community directory:
-
-```
-/plugin install video-library-classifier
-```
+Wedding, Quinceañera, Corporate Event, Concert, Documentary, Travel — with moment brackets and multimodal semantic vocabularies configurable per type.
 
 ## Author
 

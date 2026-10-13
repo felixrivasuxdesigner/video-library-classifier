@@ -1,7 +1,7 @@
 ---
-description: Clasifica una biblioteca de video por tipo de producción (con clasificación visual opcional usando Claude + ffmpeg) y genera un CSV enriquecido por momentos del evento
+description: Clasifica una biblioteca de video por tipo de producción usando Google EmbeddingGemma 2 en local (visión + audio + sub-rangos) o fallback LLM por frames, generando CSV enriquecido e índice para Video Moment Finder
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion, TaskCreate, TaskUpdate, TaskList
-argument-hint: '[tipo=boda|quinceanero|corporativo|concierto|documental|viaje] [carpeta=ruta] [timezone=-3] [umbral=180] [visual=on|off] [frames=3] [no-cache]'
+argument-hint: '[tipo=boda|quinceanero|corporativo|concierto|documental|viaje] [carpeta=ruta] [timezone=-3] [umbral=180] [engine=gemma|triage|llm-frames] [no-cache]'
 ---
 
 Activate the `classify-video-library` skill and begin the workflow immediately.
@@ -11,19 +11,20 @@ Parse arguments from $ARGUMENTS:
 - `tipo=` → tipo de producción (skip preguntar 1a)
 - `carpeta=` → ruta raíz de la biblioteca (skip 1b)
 - `timezone=` → offset UTC (skip 1c)
-- `visual=on|off` → habilita/deshabilita clasificación visual con Claude (default: on)
-- `frames=N` → cantidad por defecto de frames a extraer por clip (default: 3, máx 4)
+- `engine=gemma|triage|llm-frames` → motor de clasificación:
+  - `triage` (default): `gemma-classify.py` (`google/embeddinggemma-2` multimodal local) clasifica directo todos los clips claros y solo escala a revisión por LLM los clips con confianza `< 0.65` o prioritarios.
+  - `gemma`: 100% local con `EmbeddingGemma 2` (0 tokens de LLM).
+  - `llm-frames`: modo clásico (`extract-frames.py` + lectura de JPEGs con `Read`).
 - `umbral=N` → segundos para marcar `revisar_prioritario=SI` (default: 180)
 - `no-cache` → ignora cualquier cache previo y reprocesa todo
-- `keep-frames` → no borra los JPEGs temporales al final (debug)
 
-Si faltan argumentos críticos, usar AskUserQuestion para los que falten siguiendo el Step 1 del skill. NO preguntar argumentos opcionales (visual, frames, umbral) salvo que el usuario los mencione o la situación lo justifique.
+Si faltan argumentos críticos (`tipo`, `carpeta`), usar `AskUserQuestion`.
 
-Después ejecutar Steps 2 a 9 del skill en orden:
-- Step 4: ffprobe-metadata.py → `_metadata.json`
-- Step 5: extract-frames.py → `_frames/` + `_visual_manifest.json` (skip si visual=off)
-- Step 6: tú (Claude) lees los frames en lotes y escribís `_visual_classifications.json` (skip si visual=off)
-- Step 7: merge-classifications.py → CSV final + cache + cleanup
-- Step 8: reporte al usuario
-
-Recordá: la clasificación visual la hacés vos (Claude) leyendo los frames con la herramienta `Read` (multimodal). NO llamar a la API de Anthropic — el modelo es el de la sesión Cowork actual.
+Después ejecutar el pipeline en orden:
+1. **Metadata técnica**: `ffprobe-metadata.py` → `_metadata.json`
+2. **Clasificación Multimodal Local (EmbeddingGemma 2)**:
+   - Ejecutar `uv run skills/classify-video-library/references/gemma-classify.py --metadata _metadata.json --tipo <tipo> --output _visual_classifications.json --cache .clasificacion_cache.json --embeddings-cache .embeddings_cache.json --embed-mode <local|triage> --manifest-out _visual_manifest.json`
+   - Si `engine=triage` y `_visual_manifest.json` tiene clips dudosos escalados, revisar únicamente esos keyframes con `Read` y actualizar sus entradas en `_visual_classifications.json`.
+   - Si el entorno no puede ejecutar `EmbeddingGemma 2` o `engine=llm-frames`, caer a `extract-frames.py` + lectura por lotes.
+3. **Fusión y Cache**: `merge-classifications.py` → CSV final + `.clasificacion_cache.json`
+4. **Reporte al usuario**: mostrar distribución por momento, energía (1–5), sub-rangos intra-clip detectados y disponibilidad de `/buscar-momento`.

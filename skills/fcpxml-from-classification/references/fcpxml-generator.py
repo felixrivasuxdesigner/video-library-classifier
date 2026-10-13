@@ -250,6 +250,39 @@ def filter_tags_for_collections(
     return out
 
 
+def parse_sub_ranges(raw: str) -> list[dict]:
+    """
+    Parsea la columna opcional `sub_ranges` (JSON array de objetos
+    `{"start_sec": float, "duration_sec": float, "keyword": str}`).
+    """
+    if not raw or not raw.strip():
+        return []
+    try:
+        data = json.loads(raw.strip())
+        if isinstance(data, list):
+            return [
+                d for d in data
+                if isinstance(d, dict) and "keyword" in d and "duration_sec" in d
+            ]
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+def seconds_to_fcpxml_time(seconds: float, frame_duration: str) -> str:
+    """
+    Convierte segundos (float) a tiempo racional alineado a frame boundaries
+    del clip (ej. `1001/24000s` o `100/3000s`).
+    """
+    if seconds <= 0:
+        return "0s"
+    num_s, den_s = frame_duration.replace("s", "").split("/")
+    fd_num, fd_den = int(num_s), int(den_s)
+    frames = max(1, int(round(seconds * fd_den / fd_num)))
+    ticks = frames * fd_num
+    return f"{ticks}/{fd_den}s"
+
+
 # -- XML builders ------------------------------------------------------------
 
 
@@ -403,6 +436,24 @@ def build_fcpxml(
                 f'        <keyword start="0s" duration="{duration}" '
                 f'value="{escape(kw)}"/>'
             )
+
+        # Sub-clip keyword ranges (v0.7+ EmbeddingGemma 2 / Video Moment Finder)
+        sub_ranges = parse_sub_ranges(row.get("sub_ranges", ""))
+        for sr in sub_ranges:
+            sr_kw = str(sr.get("keyword", "")).strip()
+            if not sr_kw:
+                continue
+            sr_start = seconds_to_fcpxml_time(
+                float(sr.get("start_sec", 0.0)), m["frame_duration"]
+            )
+            sr_dur = seconds_to_fcpxml_time(
+                float(sr.get("duration_sec", 1.0)), m["frame_duration"]
+            )
+            out.append(
+                f'        <keyword start="{sr_start}" duration="{sr_dur}" '
+                f'value="{escape(sr_kw)}"/>'
+            )
+
         out.append("      </asset-clip>")
 
     main_fid = "r1"
@@ -468,6 +519,65 @@ def parse_tags_allowlist_arg(s: str | None) -> set[str] | None:
     return {t.strip().lower() for t in s.split(",") if t.strip()}
 
 
+def collect_keyword_collections(
+    rows: list[dict],
+    keywords_mode: str,
+    tags_allowlist: set[str] | None,
+    include_priority_keyword: bool = True,
+) -> list[str]:
+    momentos_unicos = sorted({
+        row["momento"].strip() for row in rows if row.get("momento", "").strip()
+    })
+    camaras_unicas = sorted({
+        row["camara"].strip() for row in rows if row.get("camara", "").strip()
+    })
+    collections = list(momentos_unicos) + list(camaras_unicas)
+
+    if keywords_mode == "full":
+        energia_niveles: set[int] = set()
+        for row in rows:
+            nivel = parse_energia(row.get("energia", ""))
+            if nivel is not None:
+                energia_niveles.add(nivel)
+        collections += [energia_keyword(n) for n in sorted(energia_niveles)]
+
+        narrativos_unicos: set[str] = set()
+        for row in rows:
+            vn = parse_valor_narrativo(row.get("valor_narrativo", ""))
+            if vn:
+                narrativos_unicos.add(vn)
+        narrativo_order = ["Foundation", "Candid", "Epic", "Filler"]
+        collections += [
+            narrativo_keyword(v) for v in narrativo_order
+            if v in narrativos_unicos
+        ]
+
+        all_tags: set[str] = set()
+        for row in rows:
+            for t in parse_tags(row.get("tags", "")):
+                all_tags.add(t)
+        emit_tag_collections = filter_tags_for_collections(
+            sorted(all_tags), tags_allowlist
+        )
+        collections += [TAG_PREFIX + t for t in emit_tag_collections]
+
+        # Sub-range / Moment Finder custom keywords (e.g. "🔍 novio llorando")
+        subrange_kws: list[str] = []
+        for row in rows:
+            for sr in parse_sub_ranges(row.get("sub_ranges", "")):
+                kw = str(sr.get("keyword", "")).strip()
+                if kw and kw not in collections and kw not in subrange_kws:
+                    subrange_kws.append(kw)
+        collections += subrange_kws
+
+    if include_priority_keyword and any(
+        row.get("revisar_prioritario", "").strip().upper() == "SI" for row in rows
+    ):
+        collections.append(PRIO_KW)
+
+    return collections
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--csv", type=Path, required=True)
@@ -516,7 +626,7 @@ def main():
             file=sys.stderr,
         )
     if has_v06_cols:
-        print("[info] CSV v0.6 detectado (valor_narrativo presente)")
+        print("[info] CSV v0.6+ detectado (valor_narrativo presente)")
     elif has_v04_cols:
         print("[info] CSV v0.4 detectado (energia como string legacy)")
 
@@ -536,48 +646,12 @@ def main():
     if not library_loc.endswith("/"):
         library_loc += "/"
 
-    # Keyword collections: orden definido y predecible
-    momentos_unicos = sorted({row["momento"].strip() for row in rows
-                              if row["momento"].strip()})
-    camaras_unicas = sorted({row["camara"].strip() for row in rows})
-    collections = list(momentos_unicos) + list(camaras_unicas)
-
-    if args.keywords == "full":
-        # Energía (1-5 descriptiva, con backwards compat)
-        energia_niveles: set[int] = set()
-        for row in rows:
-            nivel = parse_energia(row.get("energia", ""))
-            if nivel is not None:
-                energia_niveles.add(nivel)
-        collections += [energia_keyword(n) for n in sorted(energia_niveles)]
-
-        # Valor Narrativo (v0.6+)
-        narrativos_unicos: set[str] = set()
-        for row in rows:
-            vn = parse_valor_narrativo(row.get("valor_narrativo", ""))
-            if vn:
-                narrativos_unicos.add(vn)
-        # Orden fijo: Foundation → Candid → Epic → Filler
-        narrativo_order = ["Foundation", "Candid", "Epic", "Filler"]
-        collections += [
-            narrativo_keyword(v) for v in narrativo_order
-            if v in narrativos_unicos
-        ]
-
-        # Tags (solo los que pasen el filtro)
-        all_tags: set[str] = set()
-        for row in rows:
-            for t in parse_tags(row.get("tags", "")):
-                all_tags.add(t)
-        emit_tag_collections = filter_tags_for_collections(
-            sorted(all_tags), tags_allowlist
-        )
-        collections += [TAG_PREFIX + t for t in emit_tag_collections]
-
-    if not args.no_priority_keyword and any(
-        row.get("revisar_prioritario", "").strip().upper() == "SI" for row in rows
-    ):
-        collections.append(PRIO_KW)
+    collections = collect_keyword_collections(
+        rows=rows,
+        keywords_mode=args.keywords,
+        tags_allowlist=tags_allowlist,
+        include_priority_keyword=not args.no_priority_keyword,
+    )
 
     xml = build_fcpxml(
         rows=rows,

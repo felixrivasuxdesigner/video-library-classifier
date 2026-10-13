@@ -1,9 +1,9 @@
 {
   "name": "video-library-classifier",
-  "version": "0.6.1",
-  "description": "Classifies video libraries combining ffprobe metadata + visual classification with Claude (keyframe reading via ffmpeg). Generates enriched CSV with category, energy (1-5 descriptive), narrative value, and tags per clip; converts audio to AIFF; and produces FCPXML 1.13 with Keyword Collections across 6 dimensions: moment, camera, energy, narrative, tags, and priority.",
+  "version": "0.7.0",
+  "description": "Classifies video libraries combining ffprobe metadata + local multimodal classification with Google EmbeddingGemma 2 (Vision + Audio + Text in a unified vector space, with optional LLM auto-triage). Includes Video Moment Finder (/buscar-momento) for natural language sub-clip search, audio conversion to AIFF, and FCPXML 1.13 generation with frame-accurate sub-clip Keyword Collections across 6+ dimensions.",
   "author": {
     "name": "Shape Creative Studio"
   },
-  "keywords": ["video", "ffprobe", "ffmpeg", "metadata", "classification", "visual", "claude", "multimodal", "wedding", "production", "csv", "audio", "aiff", "flac", "m4a", "conversion", "fcp", "fcpxml", "final cut pro", "keyword collections", "narrative value", "energy scale"]
+  "keywords": ["video", "ffprobe", "ffmpeg", "embeddinggemma-2", "multimodal", "moment-finder", "semantic-search", "classification", "visual", "audio", "wedding", "production", "csv", "aiff", "fcp", "fcpxml", "final cut pro", "keyword collections", "narrative value", "energy scale"]
 }
